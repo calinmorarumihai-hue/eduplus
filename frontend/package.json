@@ -12,7 +12,8 @@
     "lucide-react": "^0.290.0",
     "recharts": "^2.10.0",
     "clsx": "^2.0.0",
-    "tailwind-merge": "^2.0.0"
+    "tailwind-merge": "^2.0.0",
+    "sonner": "^1.2.0"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.14",
