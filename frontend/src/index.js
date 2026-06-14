@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App'; // Schimbă cu './Login' dacă fișierul tău principal se numește direct Login.js
+import App from './App'; // Aceasta va fi componenta ta principală care conține rutele
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
