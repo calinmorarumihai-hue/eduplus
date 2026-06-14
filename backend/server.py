@@ -12,19 +12,21 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.payments.stripe.checkout import (
-    StripeCheckout,
-    CheckoutSessionRequest,
-)
+import stripe
+from openai import AsyncOpenAI
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+# Inițializăm clienții standard folosind cheile din .env
+openai_client = AsyncOpenAI(api_key=os.getenv("EMERGENT_LLM_KEY"))
+stripe.api_key = os.getenv("STRIPE_API_KEY")
+
 from seed_data import ROMANA_QUESTIONS, MATEMATICA_QUESTIONS, get_live_sessions_seed
 from email_service import send_email, render_parent_link_notify
 from scheduler import start_scheduler
 import secrets
 import string
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / ".env")
 
 # MongoDB connection
 mongo_url = os.environ["MONGO_URL"]
@@ -204,7 +206,7 @@ def user_public(user: Dict[str, Any]) -> Dict[str, Any]:
 async def register(payload: UserRegister):
     existing = await db.users.find_one({"email": payload.email.lower()})
     if existing:
-        raise HTTPException(status_code=400, detail="Email deja înregistrat")
+        raise HTTPException(status_code=400, detail="Email deja inregistrat")
     user_id = str(uuid.uuid4())
     user_doc = {
         "id": user_id,
@@ -384,23 +386,24 @@ Creează un plan personalizat de studiu pentru elev. Răspunde DOAR în limba ro
 
 Folosește un ton prietenos, încurajator, potrivit pentru un elev de clasa a VIII-a. Răspunsul să fie maxim 350 de cuvinte."""
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"study-plan-{user['id']}",
-        system_message="Ești un mentor educațional pentru elevii români.",
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
     try:
-        response = await chat.send_message(UserMessage(text=prompt))
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Ești un mentor educațional pentru elevii români."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        plan_text = response.choices[0].message.content
     except Exception as e:
         logger.error(f"AI error: {e}")
         raise HTTPException(status_code=500, detail="Eroare la generarea planului AI")
 
     await db.users.update_one(
         {"id": user["id"]},
-        {"$set": {"ai_plan": response, "ai_plan_generated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"ai_plan": plan_text, "ai_plan_generated_at": datetime.now(timezone.utc).isoformat()}},
     )
-    return {"plan": response}
+    return {"plan": plan_text}
 
 
 @api_router.get("/dashboard/me")
@@ -489,14 +492,13 @@ async def get_team():
 
 
 # ============= PACKAGES =============
-# Default packages seeded on startup (idempotent); managed via /api/admin/packages
 DEFAULT_PACKAGES = [
     {
         "id": "starter",
         "name": "Starter",
         "price": 49.0,
         "currency": "ron",
-        "description": "Începe pregătirea cu pași mici",
+        "description": "Incepe pregătirea cu pași mici",
         "features": [
             "Evaluare inițială gratuită",
             "20 de teste de antrenament/lună",
@@ -531,7 +533,7 @@ DEFAULT_PACKAGES = [
             "Sesiuni live cu profesori (4/lună)",
             "Plan AI ultra-personalizat zilnic",
             "Materiale exclusive și simulări",
-            "Garanție: progres vizibil în 30 zile",
+            "Garanție: progres vizibil in 30 zile",
         ],
         "popular": False,
     },
@@ -541,7 +543,6 @@ DEFAULT_PACKAGES = [
 @api_router.get("/packages")
 async def list_packages():
     pkgs = await db.packages.find({}, {"_id": 0}).to_list(50)
-    # Sort by price ascending
     pkgs.sort(key=lambda p: p.get("price", 0))
     return pkgs
 
@@ -556,31 +557,41 @@ async def create_checkout(
     if not pkg:
         raise HTTPException(status_code=400, detail="Pachet invalid")
 
-    host_url = str(http_request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-
     origin = payload.origin_url.rstrip("/")
     success_url = f"{origin}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{origin}/pachete"
 
-    req = CheckoutSessionRequest(
-        amount=pkg["price"],
-        currency=pkg["currency"],
-        success_url=success_url,
-        cancel_url=cancel_url,
-        metadata={
-            "user_id": user["id"],
-            "user_email": user["email"],
-            "package_id": pkg["id"],
-        },
-    )
-    session = await stripe_checkout.create_checkout_session(req)
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': pkg.get("currency", "ron"),
+                    'product_data': {
+                        'name': pkg["name"],
+                        'description': pkg.get("description", ""),
+                    },
+                    'unit_amount': int(pkg["price"] * 100),
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "user_id": user["id"],
+                "user_email": user["email"],
+                "package_id": pkg["id"],
+            },
+        )
+    except Exception as e:
+        logger.error(f"Stripe session creation error: {e}")
+        raise HTTPException(status_code=500, detail="Eroare la inițierea sesiunii de plată")
 
     await db.payment_transactions.insert_one(
         {
             "id": str(uuid.uuid4()),
-            "session_id": session.session_id,
+            "session_id": session.id,
             "user_id": user["id"],
             "user_email": user["email"],
             "package_id": pkg["id"],
@@ -588,11 +599,15 @@ async def create_checkout(
             "currency": pkg["currency"],
             "payment_status": "pending",
             "status": "initiated",
-            "metadata": req.metadata,
+            "metadata": {
+                "user_id": user["id"],
+                "user_email": user["email"],
+                "package_id": pkg["id"],
+            },
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
     )
-    return {"url": session.url, "session_id": session.session_id}
+    return {"url": session.url, "session_id": session.id}
 
 
 @api_router.get("/payments/status/{session_id}")
@@ -604,25 +619,28 @@ async def payment_status(session_id: str, http_request: Request):
     if tx.get("payment_status") == "paid":
         return {"payment_status": "paid", "status": tx["status"], "package_id": tx["package_id"]}
 
-    host_url = str(http_request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
-    res = await stripe_checkout.get_checkout_status(session_id)
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        payment_status = session.payment_status
+        status_val = session.status
+    except Exception as e:
+        logger.error(f"Stripe retrieve error: {e}")
+        raise HTTPException(status_code=400, detail="Eroare la verificarea plății cu Stripe")
 
     await db.payment_transactions.update_one(
         {"session_id": session_id},
-        {"$set": {"payment_status": res.payment_status, "status": res.status}},
+        {"$set": {"payment_status": payment_status, "status": status_val}},
     )
 
-    if res.payment_status == "paid" and tx.get("payment_status") != "paid":
+    if payment_status == "paid" and tx.get("payment_status") != "paid":
         await db.users.update_one(
             {"id": tx["user_id"]},
             {"$addToSet": {"purchased_packages": tx["package_id"]}},
         )
 
     return {
-        "payment_status": res.payment_status,
-        "status": res.status,
+        "payment_status": payment_status,
+        "status": status_val,
         "package_id": tx["package_id"],
     }
 
@@ -631,27 +649,38 @@ async def payment_status(session_id: str, http_request: Request):
 async def stripe_webhook(request: Request):
     body = await request.body()
     sig = request.headers.get("Stripe-Signature", "")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+    endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    
     try:
-        evt = await stripe_checkout.handle_webhook(body, sig)
+        if endpoint_secret:
+            event = stripe.Webhook.construct_event(body, sig, endpoint_secret)
+        else:
+            import json
+            event = json.loads(body)
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         raise HTTPException(status_code=400, detail="Webhook invalid")
 
-    if evt.session_id:
-        await db.payment_transactions.update_one(
-            {"session_id": evt.session_id},
-            {"$set": {"payment_status": evt.payment_status, "status": "completed"}},
-        )
-        if evt.payment_status == "paid":
-            tx = await db.payment_transactions.find_one({"session_id": evt.session_id})
-            if tx:
-                await db.users.update_one(
-                    {"id": tx["user_id"]},
-                    {"$addToSet": {"purchased_packages": tx["package_id"]}},
-                )
+    event_type = event.get("type") if isinstance(event, dict) else event.type
+    event_data = event.get("data") if isinstance(event, dict) else event.data
+
+    if event_type == "checkout.session.completed":
+        session = event_data.get("object") if isinstance(event_data, dict) else event_data.object
+        session_id = session.get("id") if isinstance(session, dict) else session.id
+        payment_status = session.get("payment_status") if isinstance(session, dict) else session.payment_status
+        
+        if session_id:
+            await db.payment_transactions.update_one(
+                {"session_id": session_id},
+                {"$set": {"payment_status": payment_status, "status": "completed"}},
+            )
+            if payment_status == "paid":
+                tx = await db.payment_transactions.find_one({"session_id": session_id})
+                if tx:
+                    await db.users.update_one(
+                        {"id": tx["user_id"]},
+                        {"$addToSet": {"purchased_packages": tx["package_id"]}},
+                    )
     return {"received": True}
 
 
@@ -662,7 +691,6 @@ def gen_code(length: int = 6) -> str:
 
 @api_router.post("/parent/generate-code")
 async def generate_parent_code(user: Dict = Depends(get_current_user)):
-    """Student generates a 6-char code that a parent can use to link."""
     if user.get("role") != "student":
         raise HTTPException(status_code=403, detail="Doar elevii pot genera un cod")
     code = gen_code(6)
@@ -672,7 +700,6 @@ async def generate_parent_code(user: Dict = Depends(get_current_user)):
 
 @api_router.post("/parent/link")
 async def parent_link(payload: ParentLinkRequest, user: Dict = Depends(get_current_user)):
-    """Parent uses child's code to link."""
     if user.get("role") != "parent":
         raise HTTPException(status_code=403, detail="Doar părinții pot lega un cont copil")
     child = await db.users.find_one({"parent_code": payload.code.upper().strip(), "role": "student"})
@@ -680,13 +707,11 @@ async def parent_link(payload: ParentLinkRequest, user: Dict = Depends(get_curre
         raise HTTPException(status_code=404, detail="Cod invalid sau expirat")
     if child["id"] in user.get("children", []):
         return {"already_linked": True, "child_id": child["id"]}
-    # Two-way link, then invalidate code
     await db.users.update_one({"id": user["id"]}, {"$addToSet": {"children": child["id"]}})
     await db.users.update_one(
         {"id": child["id"]},
         {"$addToSet": {"parents": user["id"]}, "$set": {"parent_code": None}},
     )
-    # Notify child (mock email)
     subject, html, text = render_parent_link_notify(child["full_name"], user["full_name"])
     send_email(child["email"], subject, html, text)
     return {"ok": True, "child_id": child["id"], "child_name": child["full_name"]}
@@ -745,7 +770,6 @@ async def unlink_child(child_id: str, user: Dict = Depends(get_current_user)):
 
 
 # ============= ADMIN ENDPOINTS =============
-# Questions
 @api_router.get("/admin/questions")
 async def admin_list_questions(admin: Dict = Depends(get_admin_user), subject: Optional[str] = None):
     f = {}
@@ -766,7 +790,7 @@ async def admin_create_question(payload: QuestionAdmin, admin: Dict = Depends(ge
 async def admin_update_question(qid: str, payload: QuestionAdmin, admin: Dict = Depends(get_admin_user)):
     res = await db.questions.update_one({"id": qid}, {"$set": payload.model_dump()})
     if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Întrebare inexistentă")
+        raise HTTPException(status_code=404, detail="Intrebare inexistentă")
     return {"ok": True}
 
 
@@ -774,11 +798,10 @@ async def admin_update_question(qid: str, payload: QuestionAdmin, admin: Dict = 
 async def admin_delete_question(qid: str, admin: Dict = Depends(get_admin_user)):
     res = await db.questions.delete_one({"id": qid})
     if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Întrebare inexistentă")
+        raise HTTPException(status_code=404, detail="Intrebare inexistentă")
     return {"ok": True}
 
 
-# Packages
 @api_router.get("/admin/packages")
 async def admin_list_packages(admin: Dict = Depends(get_admin_user)):
     pkgs = await db.packages.find({}, {"_id": 0}).to_list(50)
@@ -812,7 +835,6 @@ async def admin_delete_package(pkg_id: str, admin: Dict = Depends(get_admin_user
     return {"ok": True}
 
 
-# Team
 @api_router.get("/admin/team")
 async def admin_list_team(admin: Dict = Depends(get_admin_user)):
     return await db.team.find({}, {"_id": 0}).to_list(100)
@@ -842,7 +864,6 @@ async def admin_delete_team(tid: str, admin: Dict = Depends(get_admin_user)):
     return {"ok": True}
 
 
-# Live sessions
 @api_router.get("/admin/sessions")
 async def admin_list_sessions(admin: Dict = Depends(get_admin_user)):
     return await db.live_sessions.find({}, {"_id": 0}).sort("date", 1).to_list(200)
@@ -872,7 +893,6 @@ async def admin_delete_session(sid: str, admin: Dict = Depends(get_admin_user)):
     return {"ok": True}
 
 
-# Stats
 @api_router.get("/admin/stats")
 async def admin_stats(admin: Dict = Depends(get_admin_user)):
     total_users = await db.users.count_documents({"role": "student"})
@@ -880,7 +900,7 @@ async def admin_stats(admin: Dict = Depends(get_admin_user)):
     total_tests = await db.test_attempts.count_documents({})
     total_questions = await db.questions.count_documents({})
     paid_tx = await db.payment_transactions.count_documents({"payment_status": "paid"})
-    # Revenue
+    
     pipeline = [
         {"$match": {"payment_status": "paid"}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
@@ -889,7 +909,6 @@ async def admin_stats(admin: Dict = Depends(get_admin_user)):
     async for d in db.payment_transactions.aggregate(pipeline):
         revenue = d["total"]
 
-    # Avg scores
     pipeline_avg_ro = [{"$match": {"role": "student", "score_romana": {"$gt": 0}}}, {"$group": {"_id": None, "avg": {"$avg": "$score_romana"}}}]
     pipeline_avg_mat = [{"$match": {"role": "student", "score_matematica": {"$gt": 0}}}, {"$group": {"_id": None, "avg": {"$avg": "$score_matematica"}}}]
     avg_ro = 0
@@ -899,7 +918,6 @@ async def admin_stats(admin: Dict = Depends(get_admin_user)):
     async for d in db.users.aggregate(pipeline_avg_mat):
         avg_mat = round(d["avg"] or 0, 1)
 
-    # Top users
     top_users = await db.users.find(
         {"role": "student"}, {"_id": 0, "id": 1, "full_name": 1, "points": 1, "email": 1}
     ).sort("points", -1).limit(5).to_list(5)
@@ -920,7 +938,6 @@ async def admin_stats(admin: Dict = Depends(get_admin_user)):
 # ============= SEED DATA =============
 @app.on_event("startup")
 async def seed_data():
-    # Seed team
     if await db.team.count_documents({}) == 0:
         team = [
             {
@@ -936,14 +953,14 @@ async def seed_data():
                 "name": "Prof. Andrei Popescu",
                 "subject": "Matematică",
                 "bio": "15 ani la catedră, mentor olimpici. Demistifică geometria pentru oricine.",
-                "fun_fact": "Rezolvă cuburi Rubik în sub 1 minut.",
+                "fun_fact": "Rezolvă cuburi Rubik in sub 1 minut.",
                 "image": "https://images.pexels.com/photos/5553633/pexels-photo-5553633.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
             },
             {
                 "id": str(uuid.uuid4()),
                 "name": "Prof. Elena Dumitrescu",
                 "subject": "Limba și literatura română",
-                "bio": "Profesor gradul I, specializată în comunicare și redactare.",
+                "bio": "Profesor gradul I, specializată in comunicare și redactare.",
                 "fun_fact": "Scrie un blog literar de 5 ani.",
                 "image": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=900&q=80",
             },
@@ -952,13 +969,12 @@ async def seed_data():
                 "name": "Prof. Mihai Ionescu",
                 "subject": "Matematică",
                 "bio": "Pasionat de algebră și probleme de combinatorică. Predă cu drag de 10 ani.",
-                "fun_fact": "Maratonist amator în timpul liber.",
+                "fun_fact": "Maratonist amator in timpul liber.",
                 "image": "https://images.unsplash.com/photo-1564981797816-1043664bf78d?w=900&q=80",
             },
         ]
         await db.team.insert_many(team)
 
-    # Seed questions - force re-seed if categories are missing or count is low
     uncategorized = await db.questions.count_documents({"category": {"$exists": False}})
     total_q = await db.questions.count_documents({})
     if uncategorized > 0 or total_q < 100:
@@ -987,7 +1003,6 @@ async def seed_data():
         await db.questions.insert_many(all_q)
         logger.info(f"Seeded {len(all_q)} questions ({len(ROMANA_QUESTIONS)} RO + {len(MATEMATICA_QUESTIONS)} MAT)")
 
-    # Seed live sessions
     if await db.live_sessions.count_documents({}) == 0:
         sessions = get_live_sessions_seed()
         for s in sessions:
@@ -995,12 +1010,10 @@ async def seed_data():
         await db.live_sessions.insert_many(sessions)
         logger.info(f"Seeded {len(sessions)} live sessions")
 
-    # Seed packages (idempotent)
     if await db.packages.count_documents({}) == 0:
         await db.packages.insert_many([{**p} for p in DEFAULT_PACKAGES])
         logger.info(f"Seeded {len(DEFAULT_PACKAGES)} packages")
 
-    # Seed admin user (idempotent)
     admin_email = "calinmorarumihai@gmail.com"
     existing_admin = await db.users.find_one({"email": admin_email})
     if not existing_admin:
@@ -1031,7 +1044,6 @@ async def seed_data():
         })
         logger.info(f"Seeded admin user: {admin_email}")
 
-    # Backfill legacy users with new fields (iter2 + iter3 additions)
     await db.users.update_many(
         {"current_streak": {"$exists": False}},
         {"$set": {
@@ -1048,7 +1060,6 @@ async def seed_data():
         {"$set": {"role": "student", "children": [], "parents": [], "parent_code": None}},
     )
 
-    # Start background scheduler (weekly reset + email reminders)
     if not hasattr(app.state, "scheduler") or app.state.scheduler is None:
         app.state.scheduler = start_scheduler(db)
 
