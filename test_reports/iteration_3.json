@@ -1,0 +1,30 @@
+{
+  "summary": "Re-tested leaderboard fix from iter2. Verified GET /api/leaderboard now returns current_streak, longest_streak, medals, and weekly_points fields for ALL entries, including legacy users (Test Student, Test User have all four fields with default 0). The targeted test test_leaderboard_has_new_fields PASSED. Also re-ran full test_iteration2.py suite (20/20 PASSED) - no regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/pytest/iter2_leaderboard_retest.xml",
+    "/app/test_reports/pytest/iter2_full_retest.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix in seed_data() using update_many with $exists:false is idempotent and correct - applies defaults only to legacy docs missing the new fields.",
+    "Verified live response: legacy user 'Test Student' (id 3c9ccd83...) shows current_streak=0, longest_streak=0, medals=0, weekly_points=0 - backfill working as expected."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A (backend-only retest)"},
+  "test_credentials": "Dynamic test users created via /api/auth/register",
+  "seed_data_creation": "None - used existing seed + dynamic test users",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter2 leaderboard backfill fix verified. All 20 iteration2 tests pass. Legacy users now receive default values (0) for current_streak, longest_streak, medals, weekly_points via update_many in seed_data() on startup.",
+  "rca of the issue": "Original bug: legacy users from iter1 did not have the new fields (current_streak, longest_streak, medals, weekly_points) in MongoDB, so /api/leaderboard responses for those entries omitted them. Fix: seed_data() now runs db.users.update_many({'current_streak': {'$exists': False}}, {'$set': {...defaults}}) on backend startup. Verified by inspecting raw API output: every entry (6 users) now contains all four fields."
+}

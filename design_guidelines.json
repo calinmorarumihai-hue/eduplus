@@ -1,0 +1,107 @@
+{
+  "theme": "Light",
+  "archetype": "3 (Pastel & Soft) mixed with 1 (Organic & Earthy) - Custom 'Oceanic Learning' theme",
+  "domain": "Education / Gamified Learning / Youth Coaching",
+  "rationale": "Edu Plus targets 8th-grade Romanian students preparing for the National Evaluation. The design must be friendly, approachable, and encouraging. The requested blue color palette and wave shapes naturally align with a soft, fluid, oceanic aesthetic. This reduces test anxiety while remaining trustworthy for parents.",
+  "color_palette": {
+    "primary": "#2563EB",
+    "primary_hover": "#1D4ED8",
+    "primary_light": "#EFF6FF",
+    "secondary": "#38BDF8",
+    "accent": "#FFB800",
+    "accent_hover": "#F59E0B",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text_primary": "#0F172A",
+    "text_secondary": "#475569",
+    "border": "#E2E8F0"
+  },
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "DM Sans",
+    "fallback_font": "sans-serif",
+    "scales": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-slate-900",
+      "h2": "text-3xl sm:text-4xl font-semibold tracking-tight text-slate-900",
+      "h3": "text-xl sm:text-2xl font-semibold text-slate-800",
+      "h4": "text-lg font-medium text-slate-800",
+      "body": "text-base leading-relaxed text-slate-600",
+      "small": "text-sm uppercase tracking-wider font-semibold text-slate-500"
+    }
+  },
+  "spacing_and_layout": {
+    "general": "Use generous spacing. Containers and sections should breathe. Default section padding is py-20 md:py-32.",
+    "card_padding": "p-8 or p-10 to feel premium and roomy.",
+    "border_radius": "Extreme roundness to match 'wave' theme. rounded-3xl for cards, rounded-full for buttons and badges.",
+    "shadows": "Soft, diffused ambient shadows with a cool tint. shadow-[0_8px_30px_rgb(37,99,235,0.06)] for standard cards. Hover states use deeper, lifted shadows.",
+    "grid_bento": "Use bento grid styles for the student dashboard. grid-cols-1 md:grid-cols-3 lg:grid-cols-4 with gap-6."
+  },
+  "wave_patterns": {
+    "implementation": "Use SVG shapes for section dividers. The hero section must end with a large, soft blue SVG wave dividing it from the next white section. Cards and containers can utilize `clip-path` or CSS masks for subtle wavy edges if desired, but primarily rely on overlapping elements and rounded-3xl corners.",
+    "divider_colors": "Transition from bg-blue-50 to bg-white via an SVG wave."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-blue-600 text-white rounded-full px-8 py-3 font-semibold shadow-md hover:shadow-lg hover:-translate-y-1 hover:bg-blue-700 transition-all focus:ring-4 focus:ring-blue-300",
+      "secondary": "bg-white text-blue-600 border-2 border-blue-100 rounded-full px-8 py-3 font-semibold hover:border-blue-300 hover:bg-blue-50 transition-all",
+      "accent": "bg-amber-400 text-slate-900 rounded-full px-8 py-3 font-bold shadow-md hover:bg-amber-500 hover:-translate-y-1 transition-all"
+    },
+    "cards": {
+      "default": "bg-white rounded-3xl border border-slate-100 shadow-[0_4px_24px_rgb(0,0,0,0.02)] p-8 transition-transform hover:-translate-y-1 hover:shadow-[0_12px_40px_rgb(37,99,235,0.08)]",
+      "glass": "bg-white/80 backdrop-blur-xl border border-white/40 shadow-xl"
+    },
+    "leaderboard": {
+      "top_1": "bg-amber-50 border-amber-200 text-amber-900 with a gold badge",
+      "top_2": "bg-slate-50 border-slate-200 text-slate-700 with a silver badge",
+      "top_3": "bg-orange-50 border-orange-200 text-orange-800 with a bronze badge",
+      "row": "flex items-center justify-between p-4 rounded-2xl bg-white border border-slate-100 mb-3"
+    },
+    "inputs": {
+      "text": "w-full rounded-2xl border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-200 transition-all"
+    }
+  },
+  "pages": {
+    "home": {
+      "hero": "Soft blue gradient background (bg-blue-50 to bg-white) overlapping into a wave SVG divider. Big, encouraging headline. Two buttons: 'Incepe Evaluarea Gratuita' and 'Vezi Pachete'.",
+      "features": "Bento grid layout highlighting AI strategy, Leaderboard, and Expert Teachers.",
+      "cta": "Bottom section with a deep blue background (bg-slate-900) and wave top-divider, encouraging immediate sign-up."
+    },
+    "dashboard": {
+      "layout": "Sidebar navigation (or top nav) + Main content area. Background bg-slate-50.",
+      "widgets": "Welcome back message. Progress ring for Romanian/Math. Next recommended AI test. Recent history. Leaderboard mini-widget."
+    },
+    "team": {
+      "layout": "Grid of professor profiles. Large friendly images, rounded-3xl, with their specialty and a fun fact to make them approachable."
+    },
+    "packages": {
+      "layout": "3-tier pricing table. Middle tier ('Recomandat') highlighted with border-blue-500, shadow-xl, and a 'Popular' badge. Clear breakdown of features (Evaluare initiala, Strategie AI, etc.)."
+    }
+  },
+  "images": {
+    "hero_student": {
+      "url": "https://images.unsplash.com/photo-1514369118554-e20d93546b30?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHxoYXBweSUyMHN0dWRlbnQlMjBzdHVkeWluZ3xlbnwwfHx8fDE3ODE0NDgyODV8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Happy student studying, usable for hero or feature section",
+      "category": "hero"
+    },
+    "dashboard_student": {
+      "url": "https://images.pexels.com/photos/5553633/pexels-photo-5553633.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Male student smiling with headphones",
+      "category": "feature"
+    },
+    "friendly_teacher": {
+      "url": "https://images.pexels.com/photos/8423069/pexels-photo-8423069.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Smiling teacher holding notes",
+      "category": "team"
+    }
+  },
+  "testing": {
+    "requirements": "ALL interactive and key informational elements MUST include a data-testid attribute in kebab-case. Examples: data-testid='hero-cta-button', data-testid='login-form-submit', data-testid='pricing-tier-card'."
+  },
+  "instructions_to_main_agent": [
+    "Ensure global fonts Outfit and DM Sans are imported via Google Fonts in index.html or global css.",
+    "Use lucide-react for icons (graduation-cap, wave-icon, user, trophy, bar-chart).",
+    "Implement the SVGs for wave shapes using raw SVG paths directly in the JSX or custom CSS masks to avoid external dependencies.",
+    "For Shadcn components, override the default border radii to match the 'rounded-2xl' or 'rounded-3xl' requirement.",
+    "Use Framer Motion for simple entrance animations (fade up, stagger children) to make the learning platform feel dynamic."
+  ]
+}

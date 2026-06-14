@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 2 backend tested: 39/40 pytest assertions pass (19/20 iter2 + 20/20 iter1 regression). All new features (categories, exam mode, streak/medal tracking, simulation x2 points, live sessions, weekly leaderboard, dashboard.upcoming_sessions, force-reseeding 100 questions) work as specified. One real issue found in /api/leaderboard: legacy users (registered before the streak/medal fields were added) are returned without those fields because the Mongo projection only includes existing keys.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/leaderboard",
+        "issue": "Entries for users created before iteration 2 lack 'current_streak', 'longest_streak', 'medals' and 'weekly_points' fields (Mongo projection skips missing keys). Frontend that expects these fields will render blanks/NaN for those rows. New users created in iter2 include all fields correctly.",
+        "priority": "MEDIUM"
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter2_results.xml",
+    "/app/test_reports/pytest/iter1_rerun.xml"
+  ],
+  "action_items": [
+    "Fix /api/leaderboard so missing streak/medal/weekly_points default to 0 for legacy users. Two options: (a) use $ifNull aggregation projection, or (b) backfill existing users with the new fields on startup (e.g. db.users.update_many({current_streak:{$exists:false}}, {$set:{current_streak:0, longest_streak:0, medals:0, weekly_points:0}})). Option (b) is preferred because the same gap exists when these users hit /auth/me, etc.",
+    "Optional: also backfill 'registered_sessions' and 'has_initial_eval' on legacy users for consistency."
+  ],
+  "critical_code_review_comments": [
+    "user_public() already defaults missing fields with user.get(field, 0), but the /leaderboard endpoint bypasses user_public() and returns raw Mongo docs — that's why missing fields surface. Same risk for /leaderboard/weekly (mitigated only because the $gt:0 filter excludes legacy users).",
+    "Streak logic in /test/submit recomputes longest_streak after possibly leaving current_streak unchanged on same-day re-submit; the formula is correct, but consider extracting to a helper for readability.",
+    "Medals computed as (total_tests + 1) // 5 is correct (it counts the just-inserted attempt), matches spec '+1 every 5 tests'.",
+    "Backend correctly drops & re-seeds questions when categories are missing OR total < 100 — verified 100 questions in DB.",
+    "Live-session seed creates 3 'premium' + 1 'standard' sessions as required; can_attend/is_registered flags computed correctly per user.",
+    "POST /test/submit stores 'category' on the attempt document — verified via dashboard history."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration2.py"],
+  "success_rate": {"backend": "97.5% (39/40)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Tests create disposable users (test.iter2.*@eduplus.ro, test.streak.*@eduplus.ro, test.student.*@eduplus.ro) with password Test123!. No shared credentials needed.",
+  "seed_data_creation": "Each test run creates ~3 throwaway users and submits 8-12 tests. They remain in MongoDB but use unique uuid-suffixed emails so they don't collide.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 2 backend is in good shape. Only /api/leaderboard returning legacy-user docs without the new fields needs fixing. After fix, re-run /app/backend/tests/test_iteration2.py::test_leaderboard_has_new_fields. To force a clean state, you can drop the 'users' collection between full regression runs (db.users.drop()) so legacy users from iter1 don't pollute leaderboard projections. Both test files together cover register/login/me, AI study-plan, Stripe checkout, categories, exam, streak/medal logic, simulation, leaderboard, weekly leaderboard, live sessions (auth + premium-gating + register + invalid id), dashboard.upcoming_sessions, and total question count.",
+  "rca of the issue": "Reproduction: 1) call GET /api/leaderboard after any user from iter1 (registered before the new fields were added) has accumulated points. 2) Response contains entries like {id, full_name, points, score_*, total_tests} WITHOUT the new fields. Root cause: server.py /leaderboard projection lists current_streak/longest_streak/medals/weekly_points with value 1, but MongoDB projection only returns existing fields — old user docs never had these keys. Mitigation: backfill on startup with update_many({current_streak:{$exists:false}}, {$set:{current_streak:0, longest_streak:0, medals:0, weekly_points:0}}), or wrap the projection with $ifNull via aggregate()."
+}
