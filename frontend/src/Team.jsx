@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import api from "@/lib/api";
+import api from './lib/api';
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { WaveDivider } from "@/components/Wave";
