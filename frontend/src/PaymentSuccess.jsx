@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import api from "@/lib/api";
+import api from './lib/api';
 import Navbar from "@/components/Navbar";
 import { CheckCircle2, Loader2, XCircle, ArrowRight } from "lucide-react";
 
